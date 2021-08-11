@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime
 from itertools import count
 from time import sleep
 
@@ -53,7 +54,8 @@ def parse_search_results(html):
         apartment_floor, _sep, max_floor, _ = num_of_floors_info.text.split()
 
         material = card.find(
-            class_='living-list-card__material living-list-card-material living-list-card__inner-block'
+            class_='living-list-card__material \
+            living-list-card-material living-list-card__inner-block'
         )
 
         material = material.text if material else ''
@@ -115,21 +117,30 @@ def parse_building_page(html):
 
     year = normalize_year(raw_year)
 
-    lon_pattern = re.compile(r'"longitude":(\d+\.\d+),')
-    lat_pattern = re.compile(r'"latitude":(\d+\.\d+),')
+    return {
+        'search_url': f'{BASE_URL}{search_page}',
+        'year': year,
+        'address': address,
+        # 'lon': lon,
+        # 'lat': lat,
+    }
+
+
+def get_lon_lat_from_flat_page(url):
+    response = requests.get(url)
+    response.raise_for_status
+
+    soup = BeautifulSoup(response.text, 'lxml')
+
+    lon_pattern = re.compile(r'location":{"latitude":\d+\.\d+,"longtitude":(\d+\.\d+)')
+    lat_pattern = re.compile(r'location":{"latitude":(\d+\.\d+),')
 
     script = soup.find('script', text=lon_pattern)
 
     lon = lon_pattern.search(script.string).group(1)
     lat = lat_pattern.search(script.string).group(1)
 
-    return {
-        'search_url': f'{BASE_URL}{search_page}',
-        'year': year,
-        'address': address,
-        'lon': lon,
-        'lat': lat,
-    }
+    return lon, lat
 
 
 def main():
@@ -145,9 +156,16 @@ def main():
     for building_id in buildings_ids:
         buildings[building_id] = parse_building_page(get_building_page(building_id))
         buildings[building_id]['flats'] = get_flats(buildings[building_id]['search_url'])
+
+        first_flat = list(buildings[building_id]['flats'].keys())[0]
+        lon, lat = get_lon_lat_from_flat_page(buildings[building_id]['flats'][first_flat]['url'])
+        buildings[building_id]['lon'], buildings[building_id]['lat'] = lon, lat
         sleep(1)
 
-    with open('buildings.json', 'w', encoding='utf-8') as f:
+    today = datetime.today().strftime('%Y%m%d')
+    output_filename = f'{today}_buildings.json'
+
+    with open(output_filename, 'w', encoding='utf-8') as f:
         json.dump(buildings, f, ensure_ascii=False)
 
 
