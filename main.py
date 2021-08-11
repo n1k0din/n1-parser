@@ -1,14 +1,7 @@
-"""
-Горский, 67
-https://novosibirsk.n1.ru/search/?rubric=flats&deal_type=sell&limit=100&addresses%5B0%5D%5Bstreet_id%5D=864344&addresses%5B0%5D%5Bhouse_number%5D=67&is_newbuilding=false
-
-Стартовая, 1
-https://novosibirsk.n1.ru/search/?rubric=flats&deal_type=sell&limit=100&addresses%5B0%5D%5Bstreet_id%5D=865348&addresses%5B0%5D%5Bhouse_number%5D=1&is_newbuilding=false
-"""
-
+import json
 import re
 from itertools import count
-from pprint import pprint
+from time import sleep
 
 import requests
 from bs4 import BeautifulSoup
@@ -71,7 +64,6 @@ def parse_search_results(html):
 
         _, flat_id = rel_url.strip('/').split('/')
 
-
         flats[int(flat_id)] = {
             'url': f'{BASE_URL}{rel_url}',
             'area': float(area),
@@ -81,26 +73,9 @@ def parse_search_results(html):
             'price': int(price.replace(' ', '')),
         }
 
+        sleep(0.5)
+
     return flats
-
-
-def parse_apartment_page(html):
-    soup = BeautifulSoup(html, 'lxml')
-
-    building = soup.find('div', class_='card-living-content-params__col _last')
-    year_of_construction = building.\
-        find('span', class_='card-living-content-params-list__value').\
-        text[:4]
-
-    # lon_pattern = re.compile(r'"longitude":(\d+\.\d+),')
-    # lat_pattern = re.compile(r'"latitude":(\d+\.\d+),')
-    #
-    # script = soup.find('script', text=lon_pattern)
-    #
-    # lon = lon_pattern.search(script.string).group(1)
-    # lat = lat_pattern.search(script.string).group(1)
-
-    return year_of_construction
 
 
 def get_building_page(building_id):
@@ -158,24 +133,22 @@ def parse_building_page(html):
 
 
 def main():
-    # search_filename = 'startovaya.html'
-    # apartment_page_filename = 'apartment_page.html'
-    # building_page_filename = 'dom.html'
+    buildings_ids = []
+    buildings_filename = 'buildings.txt'
 
-    building_id = 489928
-    # 341549 - стартовая
-    # 489928 - выборная
-
-    # with open('dom.html') as f:
-    #     building_page_html = f.read()
-    #     relative_search_page, year, address, lon, lat = parse_building_page(building_page_html)
+    with open(buildings_filename) as f:
+        for row in f:
+            building_id, *_ = row.split()
+            buildings_ids.append(building_id)
 
     buildings = {}
-    buildings[building_id] = parse_building_page(get_building_page(building_id))
+    for building_id in buildings_ids:
+        buildings[building_id] = parse_building_page(get_building_page(building_id))
+        buildings[building_id]['flats'] = get_flats(buildings[building_id]['search_url'])
+        sleep(1)
 
-    buildings[building_id]['flats'] = get_flats(buildings[building_id]['search_url'])
-
-    pprint(buildings[building_id])
+    with open('buildings.json', 'w', encoding='utf-8') as f:
+        json.dump(buildings, f, ensure_ascii=False)
 
 
 if __name__ == '__main__':
