@@ -1,0 +1,182 @@
+"""
+Горский, 67
+https://novosibirsk.n1.ru/search/?rubric=flats&deal_type=sell&limit=100&addresses%5B0%5D%5Bstreet_id%5D=864344&addresses%5B0%5D%5Bhouse_number%5D=67&is_newbuilding=false
+
+Стартовая, 1
+https://novosibirsk.n1.ru/search/?rubric=flats&deal_type=sell&limit=100&addresses%5B0%5D%5Bstreet_id%5D=865348&addresses%5B0%5D%5Bhouse_number%5D=1&is_newbuilding=false
+"""
+
+import re
+from itertools import count
+from pprint import pprint
+
+import requests
+from bs4 import BeautifulSoup
+
+BASE_URL = 'https://novosibirsk.n1.ru'
+BUILDING_PAGE_TEMPLATE = 'https://novosibirsk.n1.ru/building/{}/'
+
+
+def get_flats(url):
+    flats = {}
+    for page in count(start=1):
+        search_url = f'{url}&page={page}'
+
+        response = requests.get(search_url)
+        response.raise_for_status()
+
+        new_flats = parse_search_results(response.text)
+
+        if not new_flats:
+            return flats
+
+        flats |= new_flats
+
+
+def parse_search_results(html):
+    soup = BeautifulSoup(html, 'lxml')
+
+    cards = soup.find_all('div', class_='living-list-card__main-container')
+
+    if not cards:
+        return None
+
+    flats = {}
+
+    for card in cards:
+        main_info = card.find('div', class_='living-list-card__col _main')
+        rel_url = main_info.find('div', class_='card-title living-list-card__inner-block')\
+            .find('a')['href']
+
+        area_and_unit = card.find(
+            class_='living-list-card__area living-list-card-area living-list-card__inner-block'
+        )
+        area, _unit = area_and_unit.text.split()
+
+        num_of_floors_info = card.find(
+            class_='living-list-card__floor living-list-card-floor living-list-card__inner-block'
+        )
+
+        apartment_floor, _sep, max_floor, _ = num_of_floors_info.text.split()
+
+        material = card.find(
+            class_='living-list-card__material living-list-card-material living-list-card__inner-block'
+        )
+
+        material = material.text if material else ''
+
+        price = card.find(
+            class_='living-list-card-price__item _object'
+        ).text
+
+        _, flat_id = rel_url.strip('/').split('/')
+
+
+        flats[int(flat_id)] = {
+            'url': f'{BASE_URL}{rel_url}',
+            'area': float(area),
+            'apartment_floor': int(apartment_floor),
+            'max_floor': int(max_floor),
+            'material': material,
+            'price': int(price.replace(' ', '')),
+        }
+
+    return flats
+
+
+def parse_apartment_page(html):
+    soup = BeautifulSoup(html, 'lxml')
+
+    building = soup.find('div', class_='card-living-content-params__col _last')
+    year_of_construction = building.\
+        find('span', class_='card-living-content-params-list__value').\
+        text[:4]
+
+    # lon_pattern = re.compile(r'"longitude":(\d+\.\d+),')
+    # lat_pattern = re.compile(r'"latitude":(\d+\.\d+),')
+    #
+    # script = soup.find('script', text=lon_pattern)
+    #
+    # lon = lon_pattern.search(script.string).group(1)
+    # lat = lat_pattern.search(script.string).group(1)
+
+    return year_of_construction
+
+
+def get_building_page(building_id):
+    url = BUILDING_PAGE_TEMPLATE.format(building_id)
+
+    response = requests.get(url)
+    response.raise_for_status()
+
+    return response.text
+
+
+def title_to_address(title):
+    splitted = title.split('ул. ')
+
+    if len(splitted) == 1:
+        splitted = title.split('Новосибирск, ')
+
+    return splitted[1].split(' - ')[0]
+
+
+def normalize_year(raw_year, year_length=4):
+    if len(raw_year) != year_length:
+        return int(raw_year.split()[-2])
+    return int(raw_year)
+
+
+def parse_building_page(html):
+    soup = BeautifulSoup(html, 'lxml')
+
+    search_page = soup.find('a', class_='ui-kit-link _type-common _color-blue')['href']
+
+    address = title_to_address(soup.title.text)
+
+    raw_year = soup.\
+        find('div', class_='object-main-params__col _release-date').\
+        find('p', class_='object-main-params__text').text
+
+    year = normalize_year(raw_year)
+
+    lon_pattern = re.compile(r'"longitude":(\d+\.\d+),')
+    lat_pattern = re.compile(r'"latitude":(\d+\.\d+),')
+
+    script = soup.find('script', text=lon_pattern)
+
+    lon = lon_pattern.search(script.string).group(1)
+    lat = lat_pattern.search(script.string).group(1)
+
+    return {
+        'search_url': f'{BASE_URL}{search_page}',
+        'year': year,
+        'address': address,
+        'lon': lon,
+        'lat': lat,
+    }
+
+
+def main():
+    # search_filename = 'startovaya.html'
+    # apartment_page_filename = 'apartment_page.html'
+    # building_page_filename = 'dom.html'
+
+    building_id = 489928
+    # 341549 - стартовая
+    # 489928 - выборная
+
+    # with open('dom.html') as f:
+    #     building_page_html = f.read()
+    #     relative_search_page, year, address, lon, lat = parse_building_page(building_page_html)
+
+    buildings = {}
+    buildings[building_id] = parse_building_page(get_building_page(building_id))
+
+    buildings[building_id]['flats'] = get_flats(buildings[building_id]['search_url'])
+
+    pprint(buildings[building_id])
+
+
+if __name__ == '__main__':
+    main()
