@@ -1,3 +1,4 @@
 *.html
 venv/
-buildings.json
+*buildings.json
+test.json
