@@ -121,8 +121,6 @@ def parse_building_page(html):
         'search_url': f'{BASE_URL}{search_page}',
         'year': year,
         'address': address,
-        # 'lon': lon,
-        # 'lat': lat,
     }
 
 
